@@ -10,6 +10,10 @@ import pytesseract
 import cv2
 import re
 import json
+import nltk
+
+nltk.download('punkt')
+
 
 # Função para converter array NumPy para QImage
 def numpy_to_qimage(img):
@@ -20,6 +24,7 @@ def numpy_to_qimage(img):
         qimg = QtGui.QImage(img.data, width, height, QtGui.QImage.Format_RGB888)
     return qimg
 
+
 class PythonHighlighter(QtGui.QSyntaxHighlighter):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -29,7 +34,8 @@ class PythonHighlighter(QtGui.QSyntaxHighlighter):
         keyword_format = QtGui.QTextCharFormat()
         keyword_format.setForeground(QtGui.QColor("#569cd6"))
         keyword_format.setFontWeight(QtGui.QFont.Bold)
-        keywords = ["def", "class", "for", "if", "elif", "else", "while", "return", "import", "from", "as", "try", "except", "finally", "with"]
+        keywords = ["def", "class", "for", "if", "elif", "else", "while", "return", "import", "from", "as", "try",
+                    "except", "finally", "with"]
         for word in keywords:
             self.highlighting_rules.append((QtCore.QRegExp(r'\b' + word + r'\b'), keyword_format))
 
@@ -55,6 +61,7 @@ class PythonHighlighter(QtGui.QSyntaxHighlighter):
                 length = expression.matchedLength()
                 self.setFormat(index, length, format)
                 index = expression.indexIn(text, index + length)
+
 
 # Classe da interface gráfica
 class AIResponseViewer(QtWidgets.QWidget):
@@ -207,11 +214,139 @@ class AIResponseViewer(QtWidgets.QWidget):
 
         # Função para detectar se o texto capturado é um problema algorítmico
         def is_alg_problem(text):
-            keywords = ['input', 'output', 'example', 'prices', 'maximum', 'integer', 'array']
+            return has_keywords(text) or has_patterns(text) or has_token_matches(text)
+
+        # Implementação do Método 1: Expansão das palavras-chave
+        def has_keywords(text):
+            keywords = [
+                'input', 'output', 'example', 'constraint', 'constraints', 'integer', 'integers',
+                'array', 'arrays', 'list', 'lists', 'string', 'strings', 'tree', 'trees', 'graph', 'graphs',
+                'algorithm', 'algorithms', 'compute', 'calculate', 'determine', 'find', 'search',
+                'maximum', 'minimum', 'optimize', 'sort', 'sorted', 'sequence', 'data structure',
+                'dynamic programming', 'recursion', 'complexity', 'efficient', 'function', 'test case',
+                'subsequence', 'substring', 'nodes', 'edges', 'path', 'weight', 'sum', 'product',
+                'modulo', 'prime', 'factorial', 'permutation', 'combination', 'digits', 'frequency',
+                'probability', 'queries', 'operations', 'elements', 'pair', 'triplet', 'matrix', 'matrices',
+                'number', 'numbers', 'time limit', 'space limit', 'value', 'values', 'total', 'length',
+                'height', 'depth', 'breadth', 'width', 'count', 'size', 'capacity', 'level', 'order',
+                'neighbor', 'neighbors', 'connected', 'component', 'components', 'degree', 'weights',
+                'balanced', 'unbalanced', 'circular', 'linear', 'non-linear', 'symmetric', 'asymmetric',
+                'palindrome', 'anagram', 'pattern', 'matching', 'regex', 'regular expression',
+                'shuffle', 'reverse', 'rotate', 'flip', 'swap', 'shift', 'merge', 'split', 'join',
+                'append', 'insert', 'delete', 'remove', 'replace', 'update', 'modify', 'transform',
+                'convert', 'encode', 'decode', 'compress', 'decompress', 'encrypt', 'decrypt',
+                'hash', 'map', 'filter', 'reduce', 'flatten', 'zip', 'unzip', 'concatenate', 'compare',
+                'equal', 'unequal', 'greater', 'less', 'between', 'range', 'threshold', 'limit', 'bound',
+                'unbound', 'infinite', 'finite', 'overflow', 'underflow', 'exception', 'error',
+                'valid', 'invalid', 'duplicate', 'unique', 'missing', 'empty', 'null', 'undefined',
+                'initialize', 'instantiate', 'implement', 'inherit', 'override', 'overload', 'interface',
+                'abstract', 'static', 'final', 'constant', 'variable', 'parameter', 'argument',
+                'property', 'attribute', 'method', 'procedure', 'routine', 'loop', 'iteration',
+                'recursion', 'conditional', 'branch', 'case', 'switch', 'debug', 'trace', 'log',
+                'print', 'display', 'show', 'visualize', 'simulate', 'model', 'train', 'test',
+                'validate', 'accuracy', 'precision', 'recall', 'performance', 'benchmark', 'profile',
+                'optimize', 'improve', 'enhance', 'refactor', 'restructure', 'design', 'architecture',
+                'pattern', 'anti-pattern', 'best practice', 'code smell', 'technical debt',
+                'scalable', 'robust', 'secure', 'reliable', 'maintainable', 'portable', 'compatible',
+                'efficient', 'fast', 'slow', 'complex', 'simple', 'elegant', 'readable', 'clean',
+                'comment', 'document', 'specification', 'requirement', 'analysis', 'synthesis',
+                'evaluation', 'iteration', 'development', 'deployment', 'integration', 'delivery',
+                'continuous', 'agile', 'scrum', 'kanban', 'waterfall', 'spiral', 'prototype',
+                'test-driven', 'behavior-driven', 'domain-driven', 'model-driven'
+            ]
             for keyword in keywords:
                 if re.search(rf'\b{keyword}\b', text, re.IGNORECASE):
                     return True
             return False
+
+        # Implementação do Método 2: Padrões de expressões regulares
+        def has_patterns(text):
+            patterns = [
+                r'Constraints?:',
+                r'Input\s+Format:',
+                r'Output\s+Format:',
+                r'Sample\s+Input:',
+                r'Sample\s+Output:',
+                r'Examples?:',
+                r'Description:',
+                r'Problem\s+Statement:',
+                r'You are given',
+                r'Write a program',
+                r'Given an? .*?, (determine|compute|find|calculate)',
+                r'In this problem',
+                r'The first line contains',
+                r'Read an integer',
+                r'For each test case',
+                r'Print .*? to stdout',
+                r'Explanation',
+                r'Note:',
+                r'Test\s+Cases?',
+                r'Function Description',
+                r'Complete the .*? function',
+                r'Return the .*?',
+                r'Your task is to',
+                r'Limits?:',
+                r'Input consists of',
+                r'Output consists of',
+                r'Constraints:',
+                r'Objective:',
+                r'Challenge:',
+                r'Background:',
+                r'Compute the',
+                r'Find the',
+                r'Calculate the',
+                r'Determine the',
+                r'Implement an algorithm',
+                r'Solve the following',
+                r'Consider the following',
+                r'Assume that',
+                r'Suppose that',
+                r'Let\'s define',
+                r'Let us define',
+                r'It is required to',
+                r'Develop a function',
+                r'Provide an algorithm',
+                r'Design a program',
+                r'Your function should',
+                r'Return YES if',
+                r'Return NO if',
+                r'Constraints are as follows',
+                r'The goal is to',
+                r'Under the following conditions',
+                r'Examples? \(input/output\):',
+                r'All input numbers are',
+                r'The input data is guaranteed to be',
+                r'The output should be',
+                r'Output Format:',
+                r'Input Format:',
+            ]
+            for pattern in patterns:
+                if re.search(pattern, text, re.IGNORECASE):
+                    return True
+            return False
+
+        # Implementação do Método 6: Análise de tokens com NLTK
+        def has_token_matches(text):
+            tokens = nltk.word_tokenize(text.lower())
+            keywords = set([
+                'compute', 'calculate', 'determine', 'find', 'output', 'input',
+                'integer', 'array', 'string', 'given', 'write', 'program', 'function',
+                'algorithm', 'return', 'constraints', 'test', 'case', 'example', 'data',
+                'structure', 'efficient', 'complexity', 'optimize', 'search', 'sort',
+                'maximum', 'minimum', 'number', 'numbers', 'list', 'lists', 'trees',
+                'graphs', 'nodes', 'edges', 'dynamic', 'programming', 'recursion',
+                'solution', 'implement', 'design', 'develop', 'code', 'procedure',
+                'method', 'approach', 'logic', 'problem', 'statement', 'task',
+                'objective', 'goal', 'challenge', 'operation', 'process', 'step',
+                'sequence', 'order', 'condition', 'loop', 'iteration', 'recurrence',
+                'formula', 'equation', 'expression', 'variable', 'parameter',
+                'argument', 'input', 'output', 'sample', 'test', 'case', 'constraints',
+                'limit', 'bound', 'time', 'space', 'efficiency', 'performance',
+                'optimize', 'improve', 'increase', 'decrease', 'maximize', 'minimize'
+            ])
+            token_set = set(tokens)
+            common_tokens = keywords.intersection(token_set)
+            return len(common_tokens) >= 3  # Ajuste o número conforme necessário
 
         # Captura a tela
         img = capture_screen(self.monitor_number)
@@ -262,10 +397,6 @@ class AIResponseViewer(QtWidgets.QWidget):
                         # Seu código aqui
                         pass
 
-                # Exemplo de uso:
-                # sol = Solution()
-                # result = sol.solve_problem(parameters)
-                # print(result)
                 [/CODE]
 
                 [EXPLANATION]
@@ -367,11 +498,11 @@ class AIResponseViewer(QtWidgets.QWidget):
             "## Considerações adicionais",
             "## Alternativas"
         ]
-        
+
         formatted_lines = []
         current_section = ""
         in_bullet_list = False
-        
+
         for line in explanation.split('\n'):
             line = line.strip()
             if line and line[0].isdigit() and '.' in line:
@@ -410,11 +541,11 @@ class AIResponseViewer(QtWidgets.QWidget):
                     formatted_lines.append("\n")
                     in_bullet_list = False
                 formatted_lines.append(line)
-        
+
         # Junta as linhas e remove espaços em branco extras
         formatted_text = '\n'.join(formatted_lines)
         formatted_text = re.sub(r'\n{3,}', '\n\n', formatted_text)
-        
+
         return formatted_text.strip()
 
     def closeEvent(self, event):
