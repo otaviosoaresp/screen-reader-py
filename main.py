@@ -20,6 +20,42 @@ def numpy_to_qimage(img):
         qimg = QtGui.QImage(img.data, width, height, QtGui.QImage.Format_RGB888)
     return qimg
 
+class PythonHighlighter(QtGui.QSyntaxHighlighter):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.highlighting_rules = []
+
+        # Definição de cores para diferentes elementos do código
+        keyword_format = QtGui.QTextCharFormat()
+        keyword_format.setForeground(QtGui.QColor("#569cd6"))
+        keyword_format.setFontWeight(QtGui.QFont.Bold)
+        keywords = ["def", "class", "for", "if", "elif", "else", "while", "return", "import", "from", "as", "try", "except", "finally", "with"]
+        for word in keywords:
+            self.highlighting_rules.append((QtCore.QRegExp(r'\b' + word + r'\b'), keyword_format))
+
+        function_format = QtGui.QTextCharFormat()
+        function_format.setFontItalic(True)
+        function_format.setForeground(QtGui.QColor("#dcdcaa"))
+        self.highlighting_rules.append((QtCore.QRegExp(r'\b[A-Za-z0-9_]+(?=\()'), function_format))
+
+        string_format = QtGui.QTextCharFormat()
+        string_format.setForeground(QtGui.QColor("#ce9178"))
+        self.highlighting_rules.append((QtCore.QRegExp(r'".*?"'), string_format))
+        self.highlighting_rules.append((QtCore.QRegExp(r"'.*?'"), string_format))
+
+        comment_format = QtGui.QTextCharFormat()
+        comment_format.setForeground(QtGui.QColor("#6a9955"))
+        self.highlighting_rules.append((QtCore.QRegExp(r'#.*'), comment_format))
+
+    def highlightBlock(self, text):
+        for pattern, format in self.highlighting_rules:
+            expression = QtCore.QRegExp(pattern)
+            index = expression.indexIn(text)
+            while index >= 0:
+                length = expression.matchedLength()
+                self.setFormat(index, length, format)
+                index = expression.indexIn(text, index + length)
+
 # Classe da interface gráfica
 class AIResponseViewer(QtWidgets.QWidget):
     # Definição do sinal personalizado
@@ -28,6 +64,7 @@ class AIResponseViewer(QtWidgets.QWidget):
     def __init__(self):
         super().__init__()
         self.init_ui()
+        self.set_syntax_highlighting()
         self.monitor_number = 1  # Número do monitor a ser capturado
 
         # Conecta o sinal ao slot
@@ -81,6 +118,7 @@ class AIResponseViewer(QtWidgets.QWidget):
         """)
 
         main_layout = QtWidgets.QHBoxLayout()
+        main_layout.setSpacing(20)  # Espaçamento entre as colunas
 
         # Coluna da esquerda (Código)
         left_layout = QtWidgets.QVBoxLayout()
@@ -89,6 +127,7 @@ class AIResponseViewer(QtWidgets.QWidget):
         self.code_edit = QtWidgets.QTextEdit(self)
         self.code_edit.setReadOnly(True)
         self.code_edit.setObjectName("code_edit")
+        self.code_edit.setLineWrapMode(QtWidgets.QTextEdit.NoWrap)  # Desativa a quebra de linha
 
         # Coluna da direita (Explicação)
         right_layout = QtWidgets.QVBoxLayout()
@@ -111,8 +150,8 @@ class AIResponseViewer(QtWidgets.QWidget):
         right_layout.addWidget(right_label)
         right_layout.addWidget(self.explanation_edit)
 
-        main_layout.addLayout(left_layout)
-        main_layout.addLayout(right_layout)
+        main_layout.addLayout(left_layout, 1)  # Proporção 1
+        main_layout.addLayout(right_layout, 1)  # Proporção 1
 
         bottom_layout = QtWidgets.QVBoxLayout()
         bottom_layout.addWidget(self.progress_bar)
@@ -123,6 +162,9 @@ class AIResponseViewer(QtWidgets.QWidget):
         overall_layout.addLayout(bottom_layout)
 
         self.setLayout(overall_layout)
+
+    def set_syntax_highlighting(self):
+        self.highlighter = PythonHighlighter(self.code_edit.document())
 
     def start_keyboard_listener(self):
         from pynput import keyboard
@@ -212,16 +254,42 @@ class AIResponseViewer(QtWidgets.QWidget):
             modified_prompt = f"""
                 {prompt}
 
-                Por favor, tente fornecer sua resposta no seguinte formato, se possível:
+                Por favor, forneça sua resposta no seguinte formato:
+
                 [CODE]
-                O código Python completo aqui
+                class Solution:
+                    def solve_problem(self, parameters):
+                        # Seu código aqui
+                        pass
+
+                # Exemplo de uso:
+                # sol = Solution()
+                # result = sol.solve_problem(parameters)
+                # print(result)
                 [/CODE]
 
                 [EXPLANATION]
-                A explicação detalhada aqui
+                1. Abordagem:
+                   - Explique brevemente a abordagem geral utilizada.
+
+                2. Algoritmo:
+                   - Descreva os passos principais do algoritmo.
+
+                3. Estruturas de dados:
+                   - Liste e explique as estruturas de dados utilizadas.
+
+                4. Complexidade:
+                   - Tempo: Analise a complexidade de tempo.
+                   - Espaço: Analise a complexidade de espaço.
+
+                5. Considerações adicionais:
+                   - Mencione quaisquer otimizações, casos especiais ou limitações.
+
+                6. Alternativas:
+                   - Se houver, mencione brevemente abordagens alternativas.
                 [/EXPLANATION]
 
-                Se não for possível usar esse formato, apenas forneça a resposta normalmente.
+                Se não for possível usar esse formato exato, tente seguir o mais próximo possível.
             """
             process = subprocess.Popen(
                 ['ollama', 'run', 'deepseek-coder-v2:latest'],
@@ -261,19 +329,93 @@ class AIResponseViewer(QtWidgets.QWidget):
                 explanation = ai_response
 
         self.code_edit.setPlainText(code)
+        self.highlighter.rehighlight()  # Reaplica o destaque de sintaxe
+
+        # Formata a explicação para melhor legibilidade
+        formatted_explanation = self.format_explanation(explanation)
 
         html_content = markdown.markdown(
-            explanation,
+            formatted_explanation,
             extensions=['fenced_code', 'codehilite']
         )
         formatter = HtmlFormatter(style='monokai', full=True, cssclass='codehilite')
         css_string = formatter.get_style_defs('.codehilite')
 
-        full_html = f"<style>{css_string}</style>{html_content}"
+        # Adiciona estilos personalizados para melhorar a aparência da explicação
+        custom_css = """
+        body { font-family: 'Segoe UI', 'Arial', sans-serif; line-height: 1.6; }
+        h1, h2, h3 { color: #569cd6; margin-top: 20px; }
+        p { margin-bottom: 15px; }
+        ul, ol { margin-bottom: 15px; padding-left: 30px; }
+        li { margin-bottom: 5px; }
+        code { background-color: #1e1e1e; color: #d4d4d4; padding: 2px 4px; border-radius: 3px; }
+        pre { background-color: #1e1e1e; border: 1px solid #3c3c3c; border-radius: 5px; padding: 10px; overflow-x: auto; }
+        """
+
+        full_html = f"<style>{css_string}{custom_css}</style>{html_content}"
         self.explanation_edit.setHtml(full_html)
 
         self.status_label.setText("AI response displayed.")
         self.progress_bar.setValue(100)
+
+    def format_explanation(self, explanation):
+        sections = [
+            "## Abordagem",
+            "## Algoritmo",
+            "## Estruturas de dados",
+            "## Complexidade",
+            "## Considerações adicionais",
+            "## Alternativas"
+        ]
+        
+        formatted_lines = []
+        current_section = ""
+        in_bullet_list = False
+        
+        for line in explanation.split('\n'):
+            line = line.strip()
+            if line and line[0].isdigit() and '.' in line:
+                # Converte linhas numeradas em cabeçalhos Markdown
+                parts = line.split('.', 1)
+                if len(parts) == 2:
+                    if in_bullet_list:
+                        formatted_lines.append("\n")
+                        in_bullet_list = False
+                    current_section = sections[int(parts[0]) - 1]
+                    formatted_lines.append(f"\n{current_section}\n")
+            elif line.lower().startswith(('tempo:', 'espaço:')):
+                # Formata as linhas de complexidade
+                if in_bullet_list:
+                    formatted_lines.append("\n")
+                    in_bullet_list = False
+                formatted_lines.append(f"- **{line}**\n")
+            elif line.startswith('-'):
+                # Trata bullet points
+                if not in_bullet_list:
+                    formatted_lines.append("\n")
+                formatted_lines.append(line)
+                in_bullet_list = True
+            elif ':' in line and not line.lower().startswith(('tempo:', 'espaço:')):
+                # Trata linhas com dois pontos como subtópicos
+                if in_bullet_list:
+                    formatted_lines.append("\n")
+                    in_bullet_list = False
+                parts = line.split(':', 1)
+                formatted_lines.append(f"\n### {parts[0].strip()}:")
+                if len(parts) > 1:
+                    formatted_lines.append(parts[1].strip())
+            elif line:
+                # Adiciona outras linhas normalmente
+                if in_bullet_list:
+                    formatted_lines.append("\n")
+                    in_bullet_list = False
+                formatted_lines.append(line)
+        
+        # Junta as linhas e remove espaços em branco extras
+        formatted_text = '\n'.join(formatted_lines)
+        formatted_text = re.sub(r'\n{3,}', '\n\n', formatted_text)
+        
+        return formatted_text.strip()
 
     def closeEvent(self, event):
         # Para o listener de teclado quando a janela é fechada
