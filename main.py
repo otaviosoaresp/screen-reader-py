@@ -6,7 +6,13 @@ import cv2
 import subprocess
 import re
 import time
+import threading
 
+from PyQt5 import QtWidgets, QtGui, QtCore
+import markdown
+from markdown.extensions import codehilite, fenced_code
+from pygments.formatters import HtmlFormatter
+from pynput import keyboard
 
 # Função para capturar a tela
 def capture_screen(monitor_number=1):
@@ -15,7 +21,6 @@ def capture_screen(monitor_number=1):
         screenshot = sct.grab(monitor)
         img = np.array(screenshot)
         return img
-
 
 # Função para melhorar o pré-processamento da imagem para OCR
 def preprocess_image(img):
@@ -29,19 +34,14 @@ def preprocess_image(img):
 
     return processed_img
 
-
 # Função para extrair texto da imagem usando OCR, após pré-processamento
 def extract_text_from_image(img):
     # Pré-processar a imagem antes de passar para o OCR
     processed_img = preprocess_image(img)
 
-    # Exibe a imagem processada para depuração
-    #cv2.imshow("Imagem Processada", processed_img)
-
     image = Image.fromarray(processed_img)
     text = pytesseract.image_to_string(image)
     return text
-
 
 # Função para detectar se o texto capturado é um problema algorítmico
 def is_alg_problem(text):
@@ -50,7 +50,6 @@ def is_alg_problem(text):
         if re.search(rf'\b{keyword}\b', text, re.IGNORECASE):
             return True
     return False
-
 
 # Função para enviar texto para o modelo local do Ollama e obter resposta
 def query_ollama(prompt):
@@ -72,52 +71,107 @@ def query_ollama(prompt):
         print("Ollama não respondeu a tempo.")
         return None
 
+# Classe da interface gráfica
+class AIResponseViewer(QtWidgets.QWidget):
+    # Definição do sinal personalizado
+    ai_response_ready = QtCore.pyqtSignal(str)
 
-# Fluxo principal
-def main():
-    monitor_number = 1  # Número do monitor a ser capturado
-    print("Iniciando a captura de tela. Pressione 'q' na janela de visualização para encerrar.")
+    def __init__(self):
+        super().__init__()
+        self.init_ui()
+        self.monitor_number = 1  # Número do monitor a ser capturado
 
-    with mss.mss() as sct:
-        monitor = sct.monitors[monitor_number]
-        while True:
-            screenshot = sct.grab(monitor)
-            img = np.array(screenshot)
+        # Conecta o sinal ao slot
+        self.ai_response_ready.connect(self.display_ai_response)
 
-            # Extrai o texto da imagem e faz o log do resultado
-            extracted_text = extract_text_from_image(img)
+        # Inicia o listener de teclado em uma thread separada
+        self.listener_thread = threading.Thread(target=self.start_keyboard_listener, daemon=True)
+        self.listener_thread.start()
 
-            # Verifica se é um problema algorítmico
-            if is_alg_problem(extracted_text):
-                print("Problema algorítmico detectado! Enviando para IA...")
-                prompt = """
-                    Dado um problema algorítmico, escreva um algoritmo que resolva o problema.
-                    
-                    O retorno deve ser somente a solução do problema.
-                    
-                    Você pode fazer uma breve explicação do seu algoritmo, mas o retorno deve ser a solução.
-                    
-                
-                    Algoritmo:
-                """
+    def init_ui(self):
+        self.setWindowTitle("Visualizador de Resposta da IA")
+        self.setGeometry(100, 100, 800, 600)
 
-                ai_response = query_ollama(f'{prompt}\n{extracted_text}')
-                if ai_response:
-                    print(f"Resposta da IA:\n{ai_response}")
+        # Cria um QTextEdit para exibir a resposta da IA
+        self.text_edit = QtWidgets.QTextEdit(self)
+        self.text_edit.setReadOnly(True)
+
+        layout = QtWidgets.QVBoxLayout()
+        layout.addWidget(self.text_edit)
+        self.setLayout(layout)
+
+        # Mensagem inicial
+        self.text_edit.setHtml("<h2>Pressione F8 para gerar a resposta da IA.</h2>")
+
+    def start_keyboard_listener(self):
+        # Cria o listener e inicia
+        self.listener = keyboard.GlobalHotKeys({'<f8>': self.on_hotkey})
+        self.listener.start()
+        self.listener.join()
+
+    def on_hotkey(self):
+        print("Tecla de atalho pressionada!")
+        # Executa o processamento em uma thread separada
+        threading.Thread(target=self.process_screen).start()
+
+    def process_screen(self):
+        print("Capturando a tela...")
+
+        img = capture_screen(self.monitor_number)
+        extracted_text = extract_text_from_image(img)
+
+        if is_alg_problem(extracted_text):
+            print("Problema algorítmico detectado! Enviando para IA...")
+            prompt = """
+                Você é um especialista em algoritmos e estrutura de dados.
+
+                Dado o problema abaixo, escreva um código que resolva o problema.
+
+                Retorne apenas o código com comentários em cada linha, explicando o propósito de cada instrução.
+
+                Problema:
+            """
+
+            ai_response = query_ollama(f'{prompt}\n{extracted_text}')
+            if ai_response:
+                print("Resposta da IA recebida.")
+                # Emite o sinal com a resposta da IA
+                self.ai_response_ready.emit(ai_response)
             else:
-                print("Nenhum problema algorítmico detectado.")
+                print("Nenhuma resposta da IA.")
+        else:
+            print("Nenhum problema algorítmico detectado.")
 
-            # # Exibe a captura de tela em uma janela
-            # cv2.imshow("Captura de Tela", img)
+    # Este método será executado no thread principal
+    @QtCore.pyqtSlot(str)
+    def display_ai_response(self, ai_response):
+        # Converte Markdown para HTML com realce de sintaxe
+        html_content = markdown.markdown(
+            ai_response,
+            extensions=['fenced_code', 'codehilite']
+        )
 
-            # Verifica se a tecla 'q' foi pressionada para encerrar
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                cv2.destroyAllWindows()
-                break
+        # Obtém o CSS do Pygments para o realce de sintaxe
+        formatter = HtmlFormatter(style='default', full=True, cssclass='codehilite')
+        css_string = formatter.get_style_defs('.codehilite')
 
-            # Pequena pausa para evitar sobrecarga
-            time.sleep(1)
+        # Embute o CSS no HTML
+        full_html = f"<style>{css_string}</style>{html_content}"
 
+        # Atualiza o QTextEdit com o conteúdo HTML
+        self.text_edit.setHtml(full_html)
+
+    def closeEvent(self, event):
+        # Para o listener de teclado quando a janela é fechada
+        self.listener.stop()
+        event.accept()
+
+def main():
+    import sys
+    app = QtWidgets.QApplication(sys.argv)
+    viewer = AIResponseViewer()
+    viewer.show()
+    sys.exit(app.exec_())
 
 if __name__ == "__main__":
     main()
