@@ -22,7 +22,7 @@ Este projeto é uma aplicação de desktop que captura problemas algorítmicos d
 ## Instalação
 1. Clone o repositório:
    ```
-   git clone https://github.com/seu-usuario/nome-do-repositorio.git
+   git clone https://github.com/otaviosoaresp/screen-reader-py.git
    ```
 2. Instale as dependências:
    ```
